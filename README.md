@@ -31,7 +31,9 @@ source = SourceTree()
 dest = DestinationTree()
 ```
 
-The class `SourceTree` will need to be defined in such a way so that the branches are available on the tree, which is discussed below in the tutorial. In order to populate the trees with data, we run the importer code on which is available on each branch, with the following syntax:
+The class `SourceTree` and `DestinationTree` will need to be defined in such a way so that the branches are available on the tree, which is discussed below in the tutorial. Each branch also has its own importer code. The destination tree will also need to have a template defined, which is triggered when the syncing operation is to commense. (These aspects are discussed in the tutorial below). 
+
+In order to populate the trees with data, we run the importer code on which is available on each branch, with the following syntax:
 
 ```python
 +source
@@ -40,15 +42,23 @@ The class `SourceTree` will need to be defined in such a way so that the branche
 
 There is an importer defined for each tree/branch combination, because the code that reads in the user data, say, will be different from reading in the other bits of information that need to be synced over, for example group information. In this particular application, the source will read information in from the CSV file and populate the users branch that way. But the CSV file does not have group information, but can be derived by inspecting the users branch and determining which groups the users belong to, depending, for example, on which department they are in. And this is again different for the destination tree, because it will read in information from the database's User table for the users branch, and then read in info from the Groups branch for the groups branch.
 
-Differences are detected by doing the following manipulations:
+Differences are detected by doing the following operations:
 
 ```python
-source - dest    # generator that outputs 'Action' objects that define the differences, used internally by the framework
-source > dest    # outputs to stdout the message property of the raw action objects
-source >> dest   # 
+source - dest    
+# outputs a generator of 'Action' objects that define the differences, used internally by the framework
+
+source > dest    
+# outputs to stdout the message property of the raw action objects, in the above scenario update_name(idnumber='11111')
+# useful for logging or inspection
+
+source >> dest
+# Sends the actions to the defined template, which has the job of actually connecting to the database and updating the info.
 ```
 
-And we can acess the user data from the source via `source.users` but from the destination area via `dest.users`. This makes for comparing the information ideal to detect differences between the two data sets. We need to understand how to use the framework to do the following things: (1) Define the branches, (2) Define the importers, and (3) Manipulate the data model.
+The last part of this framework to understand is what exists at Level 4, the "objects". These are instances of python classes, often with properies defined on them. The framework takes the primitive values that are yielded from the importer, and instantiates a new instance of the class by keyword, where idnumber is the first and only parameter.
+
+So we need to understand, in depth, how to use the framework to do the following things: (1) Define the branches, (2) Define the code up the importers, and (3) Define the objects.
 
 ##Tutorial
 
@@ -62,6 +72,7 @@ This is example code that takes us through each step that is required in the fra
 import dss 
 
 class Source(dss.trees.DataStoreTree):
+    """ Our source tree """
     _branches = '__main__.SourceBranches'
 
 class SourceBranches(dss.branches.DataStoreBranches):
@@ -69,12 +80,34 @@ class SourceBranches(dss.branches.DataStoreBranches):
     pass
 
 class users_branch_mixin:
-    """ Just define the name used """
+    """ Just define the name, i.e. source.users """
     _name = 'users'
 
 class SourceUsersBranch(SourceBranches, users_branch_mixin):
+    """ 
+    The source.users branch uses the SourceImporter for the importer
+    and the SourceUser class for the objects
+    """
     _importer = '__main__.SourceImporter'
-    _klass = ''
+    _klass = '__main__.SourceUser'
+
+class SourceUser(dss.model.Base):
+    """ 
+    When we read it in, from source, we are given a 'lastfirst' property
+    but each side of the datastore needs to have the .users branch have a 'name' property
+    so we define the name property as a derivation of the lastfirst one.
+    """
+
+    @property
+    def name(self):
+        """
+        Illustrates the following:
+           1) Use single-underline variable names for variables that are not a part of the syncing operations
+              (they are ignored by the framework)
+           2) Use properties to create derived values
+        """
+        self._last, self._first = [s.strip(' ') for s in self._lastfirst.split(',')]
+        return "{_first} {_last}".format(self)
 
 class Dest(dss.trees.DataStoreTree):
     _branches = '__main__.DestBranches'
