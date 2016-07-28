@@ -9,20 +9,20 @@ This framework solves this problem with the use of a `datastore`, which is defin
 This is represented visually here, with labels. Note that it represents a datastore that has two sync actions required (change the name of the user whose idnumber is '11111' to "Old Name", and add new user '22222' whose name is "New User"):
 
 ```
-Level 1            Level 2            Level 3                   Level 4
-datastore          "trees"            "branches"                "objects"
-(abstract)         source             source.users              source.users.get(idnumber)
----------          --------           --------------------      --------------------------
-   |
-   |                                  |--- users   -------------| idnumber='11111',name="Old Name"
-   |                                  |                         | idnumber='22222',name="New User"
-   --------------- source tree -------|--- groups  ---|
-                                                      |---------| idnumber='students',members=['11111']   
-   |
-   |
-   --------------- destination tree --|--- users   -------------| idnumber='11111',name="New Name"
-                                      |--- groups  ---|
-                                                      |---------| idnumber='students',members=['11111']
+LVL       Level 1         Level 2       Level 3                   Level 4
+CALLED:   "datastore"     "trees"       "branches"                "objects"
+EX:       n/a             source        source.users              source.users.get(idnumber)
+          ---------       --------      --------------------      --------------------------
+          |
+          |                             |--- source.users   ------| idnumber='11111',name="Old Name"
+          |                             |                         | idnumber='22222',name="New User"
+          |----------- source ----------|--- source.groups -|
+                                                            |-----| idnumber='students',members=['11111']   
+          |
+          |
+          |----------- destination -----|--- dest.users  -----------| idnumber='11111',name="New Name"
+                                        |--- dest.groups --|
+                                                           |--------| idnumber='students',members=['11111']
 ```
 
 Notice that the branches (at the third level) for each tree have the same number with the same names. This is a convention, for while you could have asymetrical branches, it is pointless in our syncing scenario. There is a requirement, however, that each object in all of the branches has to have a unique ID, a string (which we call `idnumber`). In this way, the data for the users in our CSV file can be accessed via the users branch of each respective tree, as if it were a dictionary, i.e. `source.users.get(idnumber)`. Since the datastore aspect is abstracted away, the developer only accesses the data through the trees.
@@ -86,7 +86,7 @@ So we need to understand, in depth, how to use the framework to do the following
 
 This is example code that takes us through each step that is required in the framework.
 
-```
+```python
 # First we need to define the trees, and then the branches as well. We do that by making a class and indicating in the 
 # _branches class variable a dotted notation to the path of the class. 
 # The tree will then pick up any subclass of this defined class, and "append" it to the tree as a branch
