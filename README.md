@@ -2,11 +2,11 @@
 
 ##Explanation
 
-A python framework that makes syncing between two data sets straight-forward. Suppose you have user data in a CSV file and the respective accounts are needed to be created in an external application. On a daily basis, you need to read in that data from both, store them as primitive python values, and then be able to select the differences, and then act on those differences.
+A python framework that makes syncing between two applications straight-forward. Suppose you have user data in a CSV file (exported via a cronjob) and the respective accounts are needed to be created in an external application that uses a postgres database. On a daily basis, you need to read in that data from both, store them as primitive python values, and then be able to select the differences, and then act on those differences.
 
-This framework solves this problem with the use of a `datastore`, which is defined as a tree-like structure where the root is concerned with storing and retrieving the actual data, and there are at least two nodes on the second level, where one of them is the "source" or "point of truth" data set. The third level ("branches") represents a category for each kind of object that is in our object model. In our particular instance, we have a source tree that reads in from a CSV file, and a dest tree that reads in from a postgres database. The types of data that are to be synced are users, and groups (collections of groups). 
+This framework solves this problem with the use of a `datastore`, which is defined as a tree-like structure where the root is concerned with storing and retrieving the actual data, and there are at least two nodes on the second level, where one of them is the "source" or "point of truth" data set. The third level ("branches") represents a category for each kind of object that is in our object model. In our particular instance, we have a source tree that reads in from a CSV file, and a destination tree that reads in from a postgres database. The types of data that are to be synced are users, and groups (collections of groups). 
 
-This is represented visually here, with labels. Note that it represents a datastore that has two sync actions required (change the name of the user whose idnumber is '11111' to "newname", and add new user '22222' whose name is "newuser"):
+This is represented visually here, with labels. Note that it represents a datastore that has two sync actions required (change the name of the user whose idnumber is '11111' to "Old Name", and add new user '22222' whose name is "New User"):
 
 ```
 Level 1            Level 2            Level 3                   Level 4
@@ -14,18 +14,18 @@ datastore          "trees"            "branches"                "objects"
 (abstract)         source             source.users              source.users.get(idnumber)
 ---------          --------           --------------------      --------------------------
    |
-   |                                  |--- users   -------------| idnumber='11111',name="oldname"
-   |                                  |                         | idnumber='22222',name="newuser"
+   |                                  |--- users   -------------| idnumber='11111',name="Old Name"
+   |                                  |                         | idnumber='22222',name="New User"
    --------------- source tree -------|--- groups  ---|
                                                       |---------| idnumber='students',members=['11111']   
    |
    |
-   --------------- destination tree --|--- users   -------------| idnumber='11111',name="newname"
+   --------------- destination tree --|--- users   -------------| idnumber='11111',name="New Name"
                                       |--- groups  ---|
                                                       |---------| idnumber='students',members=['11111']
 ```
 
-Notice that the branches (at the third level) for each tree have the same number with the same names. This is a convention, for while you could have asymetrical branches, it is pointless in our syncing scenario. There is a requirement, however, that each object in the branch has to have a unique ID, a string (which we call `idnumber`). In this way, the data for the users in our CSV file can be accessed via the users branch of each respective tree, as if it were a dictionary, i.e. `source.users.get(idnumber)`. Since the datastore aspect is abstracted away, the developer only accesses the data through the trees.
+Notice that the branches (at the third level) for each tree have the same number with the same names. This is a convention, for while you could have asymetrical branches, it is pointless in our syncing scenario. There is a requirement, however, that each object in all of the branches has to have a unique ID, a string (which we call `idnumber`). In this way, the data for the users in our CSV file can be accessed via the users branch of each respective tree, as if it were a dictionary, i.e. `source.users.get(idnumber)`. Since the datastore aspect is abstracted away, the developer only accesses the data through the trees.
 
 Let's get started with a bit of pseudocode:
 
@@ -52,20 +52,20 @@ u1 = source.users.get('11111')
 u2 = dest.users.get('11111')
 
 u1
-User(idnumber='11111', name="oldname")
+User(idnumber='11111', name="Old Name")
 
 u2
-User(idnumber='11111', name="newname")
+User(idnumber='11111', name="New Name")
 
 u1 - u2
-update_name(idnumber='11111', attr="name", value="newname")
+update_name(idnumber='11111', attr="name", value="New Name")
 ```
 
-You can find the differences between particular users, as above, or, with the following, detect the differences among all of the branches:
+You can find the differences between particular users, as above, or, with the following, detect the differences among all of the branches, and connect a template object to the action:
 
 ```python
 source - dest    
-# outputs a generator of 'Action' objects that define the differences, used internally by the framework
+# result is a generator of 'Action' objects that define the differences, used internally by the framework
 
 source > dest    
 update_name(idnumber='11111', attr="name", value="newname")
@@ -76,7 +76,9 @@ source >> dest
 # called the 'update_name' function of the template.
 ```
 
-The last part of this framework to understand is what exists at Level 4, the "objects". These are instances of python classes, often with properies defined on them. The framework takes the primitive values that are yielded from the importer, and instantiates a new instance of the class by keyword, where idnumber is the first and only parameter.
+The last part of this framework to understand is what exists at Level 4, the "objects". These are instances of python classes, often with properies defined on them. The framework takes the primitive values that are yielded from the importer, and instantiates a new instance of the class by keyword, where idnumber is the first and only parameter. A vital aspect to understand is that the objects specified by source.users and dest.users have to have the exact same properties.
+
+The way to ensure the objects are symmetical is uing python code to augment itself. For example, one application can export the user names, but does so in a "Last, First Middle" convention, whereas the other application has two fields "firstname" and "lastname".  Since the importer passes the values to the object as found in the source, at the object level, python code can be used augment itself in order to match the other side, by creating a property "name" that operates on `self._lastfirst`. The initial underscore in `_lastfirst` indicates to the framework that it doesn't sync and is to be ignored (and doesn't have to be matched on the other side).
 
 So we need to understand, in depth, how to use the framework to do the following things: (1) Define the branches, (2) Define the code up the importers, and (3) Define the objects.
 
@@ -103,45 +105,49 @@ class users_branch_mixin:
     """ Just define the name, i.e. source.users """
     _name = 'users'
 
+class groups_branch_mixin:
+    _name = 'groups'
+
 class SourceUsersBranch(SourceBranches, users_branch_mixin):
     """ 
     The source.users branch uses the SourceImporter for the importer
     and the SourceUser class for the objects
     """
-    _importer = '__main__.SourceImporter'
     _klass = '__main__.SourceUser'
+    _importer = '__main__.SourceImporter'
 
 class SourceUser(dss.model.Base):
     """ 
-    When we read it in, from source, we are given a 'lastfirst' property
-    but each side of the datastore needs to have the .users branch have a 'name' property
-    so we define the name property as a derivation of the lastfirst one.
+    Each object in source.users is an instance of this class
+
+    No __init__ method is required, you can assume that the object has been augmented with
+    self.properties where properties are the columns provided in the CSV.
     """
 
     @property
     def name(self):
         """
-        Illustrates the following:
-           1) Use single-underline variable names for variables that are not a part of the syncing operations
-              (they are ignored by the framework)
-           2) Use properties to create derived values
+        The importer populates the objects, but the source data does not have a "name"
+        just a "lastfirst", so we define the name property as a derivation of the lastfirst one.
+        Note that this lastfirst property starts with an underscore which indicates that the framework
+        should ignore it.
         """
-        self._last, self._first = [s.strip(' ') for s in self._lastfirst.split(',')]
-        return "{_first} {_last}".format(self)
+        self.lastname, self.firstname = [s.strip(' ') for s in self._lastfirst.split(',')]
+        return "{firstname} {lastname}".format(self)
 
-class Dest(dss.trees.DataStoreTree):
-    _branches = '__main__.DestBranches'
-
-
-class DestUser(DestBranches):
-    _name = '
-
-class MyCSVImporter(dss.importers.CSVImporter):
+class SourceImporter(dss.importers.CSVImporter):
     def get_path(self):
         return "/tmp/file.csv"   # or wherever
 
     # def readin(self):
     #      this function does not need to be defined because the imported class has code that handles it
+
+class Dest(dss.trees.DataStoreTree):
+    _branches = '__main__.DestBranches'
+
+class DestUser(DestBranches):
+    _name = ''
+
 
 class MyPGImporter(dss.importers.PostgressImporter):
     def readin(self):
