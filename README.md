@@ -4,29 +4,34 @@
 
 A python framework that makes syncing between two data sets straight-forward. Suppose you have user data in a CSV file and the respective accounts are needed to be created in an external application. On a daily basis, you need to read in that data from both, store them as primitive python values, and then be able to select the differences, and then act on those differences.
 
-This framework solves this problem with the use of a `datastore`, which is defined as a tree-like structure where the root is concerned with storing and retrieving the actual data, and there are at least two nodes on the second level, where one of them is the "source" or "point of truth" data set. Then the third level are mirror images of each other, i.e. 
+This framework solves this problem with the use of a `datastore`, which is defined as a tree-like structure where the root is concerned with storing and retrieving the actual data, and there are at least two nodes on the second level, where one of them is the "source" or "point of truth" data set. The third level ("branches") are mirror images of each other, and represents the type of data that is stored. In our particular instance, we have a source tree that reads in from a CSV file, and a dest tree that reads in from a postgres database. The types of data that are to be synced are users, and groups (collections of groups). 
 
-An graphic example with two trees, and two branches, where we want to sync user account information as well as group information (collections of users):
+This is represented visually here, with labels. Note that it represents a datastore that has one sync action required (change the name of the user whose idnumber is '11111' to "newname"):
+
 ```
-datastore          "trees"             "branches"
----------          -------             ----------
+Level 1            Level 2            Level 3                         Level 4
+datastore          "trees"            "branches"                      "objects"
+(abstract)         source             dot notation (source.users)     source.users.get(idnumber)
+---------          --------           --------------------------      --------------------------
    |
-   |                               |--- users
-   -----------> source tree -------|--- groups
+   |                                  |--- users   -------------------| idnumber='11111',name="oldname"
+   --------------- source tree -------|--- groups  ---|
+                                                      |---------------| idnumber='students',members=['11111']   
    |
    |
-   -----------> destination tree --|--- users
-                                   |--- groups
+   --------------- destination tree --|--- users   -------------------| idnumber='11111',name="newname"
+                                      |--- groups  ---|
+                                                      |---------------| idnumber='students',members=['11111']
 ```
 
-Notice that the branches for each tree have the same number with the same names. This is a requirement, for while you could have asymetrical branches, it is pointless in our syncing scenario. Another requirement is that each item in the branch has to have a unique ID, a string (which we call `idnumber`) that does not get repeated within that branch. The data for the users can be access via the users branch of each respective tree, as if it were a dictionary, i.e. `source.users.get(idnumber)`. Since the datastore aspect is abstracted away, the developer only accesses the data through the trees. For example:
+Notice that the branches (at the third level) for each tree have the same number with the same names. This is a convention, for while you could have asymetrical branches, it is pointless in our syncing scenario. There is a requirement, however, that each item in the branch has to have a unique ID, a string (which we call `idnumber`) that does not get repeated within that branch. The data for the users can be access via the users branch of each respective tree, as if it were a dictionary, i.e. `source.users.get(idnumber)`. Since the datastore aspect is abstracted away, the developer only accesses the data through the trees. For example:
 
 ```python
 source = SourceTree()
 dest = DestinationTree()
 ```
 
-The class `SourceTree` will need to be defined in such a way so that the branches are available on the tree, which is discussed below in the tutorial. In order to populate the trees with data, we run the importer code on which is avaialble on each branch, with the following syntax:
+The class `SourceTree` will need to be defined in such a way so that the branches are available on the tree, which is discussed below in the tutorial. In order to populate the trees with data, we run the importer code on which is available on each branch, with the following syntax:
 
 ```python
 +source
